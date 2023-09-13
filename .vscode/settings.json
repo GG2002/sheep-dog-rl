@@ -1,0 +1,6 @@
+{
+    "cmake.configureOnOpen": false,
+    "code-runner.executorMap": {
+        "python": "\"C:/Program Files/Anaconda3/envs/rl/python.exe\""
+    },
+}
