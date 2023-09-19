@@ -21,13 +21,14 @@ class SheepDogEnv(gym.Env):
         # 犬的角速度
         self.dog_theta_v = dog_v / self.circle_R * self.dt
         # 羊的极坐标：[r,theta]
-        self.sheep_polar_coor = [0, 0]
+        self.sheep_polar_coor = [0,0]
+        # self.sheep_polar_coor = [self.sheep_v, np.random.random()*2*np.pi]
         # 犬的极坐标角度列表，暂时训练一只犬
         self.dog_theta = np.random.uniform(0, 2*np.pi, 1)
 
         # 动作空间与状态空间
         self.action_space = gym.spaces.Box(
-            low=0, high=np.pi*2, dtype=np.float32
+            low=-np.pi/2, high=np.pi/2, dtype=np.float32
         )
         self.observation_space = self._get_obs_array()
 
@@ -58,17 +59,25 @@ class SheepDogEnv(gym.Env):
         return self.original_x + r*np.cos(theta), self.original_y - r*np.sin(theta)
 
     def _get_obs(self):
+        sheep_dog_between_theta=self.dog_theta-self.sheep_polar_coor[1]
+        sheep_dog_between_theta[sheep_dog_between_theta>np.pi]-=2*np.pi
+        sheep_dog_between_theta[sheep_dog_between_theta<-np.pi]+=2*np.pi
         return {
             "sheep_polar_coor_r": self.sheep_polar_coor[0],
             "sheep_polar_coor_theta": self.sheep_polar_coor[1],
             "dog_theta": self.dog_theta[0],
+            "sheep_dog_between_theta":sheep_dog_between_theta[0],
         }
 
     def _get_obs_array(self):
+        sheep_dog_between_theta=self.dog_theta-self.sheep_polar_coor[1]
+        sheep_dog_between_theta[sheep_dog_between_theta>np.pi]-=2*np.pi
+        sheep_dog_between_theta[sheep_dog_between_theta<-np.pi]+=2*np.pi
         return np.array([
             self.sheep_polar_coor[0],
             self.sheep_polar_coor[1],
             self.dog_theta[0],
+            sheep_dog_between_theta[0],
         ])
 
     def _get_info(self):
@@ -79,12 +88,18 @@ class SheepDogEnv(gym.Env):
         }
 
     def _get_reward(self, _info, info, _ob, ob):
+        s_d_between_theta = np.abs(_ob[1]-_ob[2])
+        if s_d_between_theta > np.pi:
+            s_d_between_theta = np.pi*2-s_d_between_theta
+        s_d_between = s_d_between_theta/np.pi
         return (
             # 与上一步相比，羊与圆圈的距离减少了多少
-            ((self.circle_R - _ob[0]) - (self.circle_R - ob[0]))
+            s_d_between * \
+            (((self.circle_R - _ob[0]) - (self.circle_R - ob[0])))
             # 与上一步相比，羊与犬的距离增大或减少了多少
-            + (np.max(info["distance"])-np.max(_info["distance"]))
-        )-self.sheep_v
+            + (1-s_d_between) * \
+            (np.max(info["distance"])-np.max(_info["distance"]))
+        )
 
     def _done(self):
         distance = self._get_info()["distance"]
@@ -94,15 +109,24 @@ class SheepDogEnv(gym.Env):
             return True, False
         return False, False
 
-    def step(self, action: Any) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
+    def step(self, action: Any, first_step=False) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
 
         _info = self._get_info()
         _observation_space = self._get_obs_array()
         # 先更新羊，再更新狗，最后判断狗是否能抓到羊
-        sheep_next_x = self.sheep_polar_coor[0]*np.cos(
-            self.sheep_polar_coor[1])+self.sheep_v*np.cos(action)
-        sheep_next_y = self.sheep_polar_coor[0]*np.sin(
-            self.sheep_polar_coor[1])+self.sheep_v*np.sin(action)
+        sheep_next_x = 0
+        sheep_next_y = 0
+        if first_step:
+            sheep_next_x = self.sheep_polar_coor[0]*np.cos(
+                self.sheep_polar_coor[1])+self.sheep_v*np.cos(action)
+            sheep_next_y = self.sheep_polar_coor[0]*np.sin(
+                self.sheep_polar_coor[1])+self.sheep_v*np.sin(action)
+        else:
+            sheep_ds_theta = (self.sheep_polar_coor[1]-action) % (np.pi*2)
+            sheep_next_x = self.sheep_polar_coor[0]*np.cos(
+                self.sheep_polar_coor[1])+self.sheep_v*np.cos(sheep_ds_theta)
+            sheep_next_y = self.sheep_polar_coor[0]*np.sin(
+                self.sheep_polar_coor[1])+self.sheep_v*np.sin(sheep_ds_theta)
         self.sheep_polar_coor[0] = np.sqrt(sheep_next_x**2+sheep_next_y**2)
         if sheep_next_x > 0:
             self.sheep_polar_coor[1] = np.arctan(
@@ -133,17 +157,17 @@ class SheepDogEnv(gym.Env):
             self.render()
 
         self.observation_space = self._get_obs_array()
-        done, captched = (False, False) if (
+        done, catched = (False, False) if (
             self.circle_R-self.sheep_polar_coor[0] > 10) else self._done()
         info = self._get_info()
         reward = self._get_reward(
             _info, info, _observation_space, self.observation_space)
         if(done):
-            print("Sheep is captched:", captched)
-            if(captched):
+            # print("Sheep is catched:", captched)
+            if(catched):
                 reward -= 1000
             else:
-                reward = 0
+                reward += 500
 
         if(self.store_mode):
             self.store_data.append(
@@ -152,9 +176,9 @@ class SheepDogEnv(gym.Env):
         return self.observation_space, reward, done, False, info
 
     def render(self):
-        # self.screen.fill((255, 255, 255))
-        # gfxdraw.aacircle(self.screen, self.original_x,
-        #                  self.original_y, self.circle_R, (0, 0, 255))
+        self.screen.fill((255, 255, 255))
+        gfxdraw.aacircle(self.screen, self.original_x,
+                         self.original_y, self.circle_R, (0, 0, 255))
 
         sheep_x, sheep_y = self._transform_polar_to_rendering_xy(
             self.sheep_polar_coor[0], self.sheep_polar_coor[1]
@@ -191,6 +215,7 @@ class SheepDogEnv(gym.Env):
             self.store_data = []
         # 羊的极坐标：[r,theta]
         self.sheep_polar_coor = [0, 0]
+        # self.sheep_polar_coor = [self.sheep_v, np.random.random()*2*np.pi]
         # 犬的极坐标角度列表，暂时训练一只犬
         self.dog_theta = np.random.uniform(0, 2*np.pi, 1)
 

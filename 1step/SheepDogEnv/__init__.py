@@ -58,17 +58,25 @@ class SheepDogEnv(gym.Env):
         return self.original_x + r*np.cos(theta), self.original_y - r*np.sin(theta)
 
     def _get_obs(self):
+        sheep_dog_between_theta=self.dog_theta-self.sheep_polar_coor[1]
+        sheep_dog_between_theta[sheep_dog_between_theta>np.pi]-=2*np.pi
+        sheep_dog_between_theta[sheep_dog_between_theta<-np.pi]+=2*np.pi
         return {
             "sheep_polar_coor_r": self.sheep_polar_coor[0],
             "sheep_polar_coor_theta": self.sheep_polar_coor[1],
             "dog_theta": self.dog_theta[0],
+            "sheep_dog_between_theta":sheep_dog_between_theta[0],
         }
 
     def _get_obs_array(self):
+        sheep_dog_between_theta=self.dog_theta-self.sheep_polar_coor[1]
+        sheep_dog_between_theta[sheep_dog_between_theta>np.pi]-=2*np.pi
+        sheep_dog_between_theta[sheep_dog_between_theta<-np.pi]+=2*np.pi
         return np.array([
             self.sheep_polar_coor[0],
             self.sheep_polar_coor[1],
             self.dog_theta[0],
+            sheep_dog_between_theta[0],
         ])
 
     def _get_info(self):
